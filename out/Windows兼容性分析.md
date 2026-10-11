@@ -245,3 +245,22 @@ e2e 对 Windows 的态度是"**代码尽力、文档指向 WSL、CI 不保证**"
 - **好消息**：全仓零 `.sh`、零 bash 语法脚本、零宿主侧 POSIX 硬编码路径；14+ 处显式 win32 适配（junction、`%APPDATA%`、`USERPROFILE`、`cmd start`、shell 分支）说明 Windows 在设计考虑之内；工具链（oxc、Playwright、pnpm、tsc）全部有原生 Windows 支持。
 - **坏消息**：唯一的硬伤恰好卡在最常见的路径上——`app.command` 的无 shell spawn 与 npm/pnpm/npx 的 `.cmd` 垫片不兼容；其次是无进程树击杀、无 Windows CI、集成套件有 POSIX 假设。
 - **对 Windows 用户的实际建议**：按官方口径用 **WSL**（一劳永逸）；必须原生时，让应用以 `node` 直启或复用已运行的应用（`reuseExisting`/直接给 `app.url`），避开 `app.command` 的垫片取值；iOS 测试走 `@e2e-dev/eas` 云模拟器。
+
+## 11. 实测验证（2026-10-11，原生 Windows 11）
+
+在本机（Node v24.14.0、npm 安装的 pnpm 12.3.4）原生 Windows 环境完成全流程实测：
+
+| 步骤 | 结果 |
+|------|------|
+| `pnpm install --frozen-lockfile` | ✅ 1421 包，2m11s（npmmirror 镜像） |
+| `pnpm build`（8 包） | ✅ ~6s（TypeScript 7 原生编译器） |
+| `playwright-core install chromium` | ✅ 需设 `PLAYWRIGHT_DOWNLOAD_HOST=https://npmmirror.com/mirrors/playwright/`（CDN 直连慢） |
+| `node packages/e2e/dist/cli/bin.js --version` | ✅ 0.19.0 |
+| testbed 完整套件（原生 Windows） | ✅ **15 文件 / 77 测试全通过**，1 跳过，26.4s（真 Chromium + 真 playground 应用） |
+
+实测与 §2.1 的分析完全吻合：testbed 的 `app.command` 用 `executable: 'node'`，恰好绕开了 `.cmd` 垫片 spawn 阻断——**原生 Windows 上"构建 + 确定性测试"这条路径是通的**。两点实测补充：
+
+1. **视觉基线按平台命名**：`apps/testbed/tests/visual.e2e.ts-snapshots/` 仓库只提交了 `-linux/-darwin` 基线；win32 首跑自动写入 `-win32.png` 并失败一次（框架提示 review + commit），第二跑 4/4 通过。win32 基线文件体积与 linux 同量级，内容为真实渲染。
+2. **lockfile 元数据副作用**：本机 pnpm 经 npm 安装（非独立 exe），`pnpm install` 会从 `pnpm-lock.yaml` 删掉 `@pnpm/exe` 的 `packageManagerDependencies` 条目（纯元数据 diff）。若想保持 lockfile 字节不变，可改用 `corepack prepare pnpm@12.3.4 --activate` 管理的 pnpm。
+
+未测：agentic 套件（需 `AI_GATEWAY_API_KEY`）、移动引擎（需设备）、`e2e mcp`。
